@@ -113,3 +113,7 @@ For example, this line will allow users in the `project-managers` group to manag
 > NOTE: changes to the `PROJECTS_ROOT`, `DATA_ROOT`, and `GROUP_PREFIX` after projects
 > have been created will NOT update existing projects; those
 > directories and groups will need to be updated manually
+
+## Thank Yous
+
+Thank you to my team lead at the School of Information at the University of Texas at Austin for allowing me to open-source this script.
