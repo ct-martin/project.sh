@@ -1,0 +1,283 @@
+#!/usr/bin/bash
+
+# This script allows people with permission to manage projects
+# on the local system. Permissions are granted with sudoers.
+
+# Configuration:
+
+# Show the "proj" message when the user opens a terminal
+BASHRC_MOTD=1
+
+# NOTE: changes to the following configuration values after projects
+# have been created will NOT update existing projects; those
+# directories and groups will need to be updated manually
+
+# NOTE: the DATA_ROOT must not be under the PROJECTS_ROOT
+# This contraint is to prevent collisions while allowing data
+# to be stored in a different location, for example, to assist
+# in version control of project files or to enable different
+# quotas or backup policies on project files vs data. These
+# additional configurations are not managed by this script.
+
+# Directory for all project files (no trailing slash):
+PROJECTS_ROOT="/mnt/projects"
+
+# Directory for all data files (no trailing slash):\
+DATA_ROOT="/mnt/data"
+
+# Prefix for group names; will be concatenated to project name
+# with a hyphen. E.g., "projects" with project "foo" will become
+# a group called "projects-foo"
+GROUP_PREFIX="projects"
+
+# Function: Usage
+function projusage() {
+	echo "Usage: project [create|delete|paths|users|useradd|userrm|fixperms|help|bashrc] <project> <user>"
+	echo "See \"project help\" for more info."
+}
+
+# Display simple help if no args
+if [ $# -eq 0 ]; then
+	projusage
+	exit 0
+fi
+
+# Internal Vars (Args are mapped to names for clarity)
+ACTION=$1
+PROJECT=$2
+USER=$3
+PROJGROUP="$GROUP_PREFIX-$PROJECT"
+PROJDIR="$PROJECTS_ROOT/$PROJECT"
+PROJDATA="$DATA_ROOT/$PROJECT"
+
+# Debugging output
+#echo "Action: $ACTION"
+#echo "Project: $PROJECT"
+#echo "User: $USER"
+
+# Helper Functions
+
+# Switch to sudo if needed
+function assertsudo() {
+	if [[ $(id -u) != 0 ]]; then
+		#echo "Switching to sudo"
+		sudo $0 $ACTION $PROJECT $USER
+		exit 0
+	fi
+}
+
+# Assert project name must be set
+function assertproj() {
+	if [[ -z $PROJECT ]]; then
+		echo "No project name specified"
+		exit 1
+	fi
+}
+
+# Assert user name must be set
+function assertuser() {
+	if [[ -z $USER ]]; then
+		echo "No user name specified"
+		exit 1
+	fi
+}
+
+# Assert project exists
+function assertprojexists() {
+	getent group "$PROJGROUP" > /dev/null 2>&1
+
+	if [ $? -ne 0 ]; then
+		echo "Project does not exist"
+		exit 1
+	fi
+}
+
+# Assert project does not exist
+function assertprojnotexists() {
+	getent group "$PROJGROUP" > /dev/null 2>&1
+
+	if [ $? -eq 0 ]; then
+		echo "Project already exists"
+		exit 1
+	fi
+}
+
+# Assert user exists
+function assertuserexists() {
+	getent passwd "$USER" > /dev/null 2>&1
+
+	if [ $? -ne 0 ]; then
+		echo "User does not exist"
+		exit 1
+	fi
+}
+
+# Set permissions on directories
+function projsetperms() {
+	chown -R nobody:"$PROJGROUP" "$PROJDIR"
+	chown -R nobody:"$PROJGROUP" "$PROJDATA"
+	chmod -R g=rwXs,uo-rwx "$PROJDIR"
+	chmod -R g=rwXs,uo-rwx "$PROJDATA"
+}
+
+# Main Functions (e.g. what can be selected in the menu)
+
+# Create project
+function projcreate() {
+	assertsudo
+	assertproj
+	assertprojnotexists
+	groupadd "$PROJGROUP"
+	mkdir -p "$PROJDIR"
+	mkdir -p "$PROJDATA"
+	projsetperms
+	ln -s "$PROJDATA" "$PROJDIR/data"
+	echo "Project created. Use \"project useradd <project> <user>\" to add members."
+}
+
+# Delete project
+function projdelete() {
+	assertsudo
+	assertproj
+	assertprojexists
+	rm -rf "$PROJDIR"
+	rm -rf "$PROJDATA"
+	groupdel "$PROJGROUP"
+	echo "Project deleted."
+}
+
+# Get the directory(ies) of a project
+function projpaths() {
+	assertproj
+	assertprojexists
+	echo "Project Files:  $PROJDIR"
+	echo "Data Files:     $PROJDATA"
+	echo "(Note: the project files where you should \"cd\" to; the data files are symlinked to ./data)"
+}
+
+# List users in a project
+function projuserlist() {
+	assertproj
+	assertprojexists
+	getent group "$PROJGROUP" | awk '{ split($0,a,":"); gsub(","," ",a[4]); print a[4] }'
+}
+
+# Add user to project
+function projuseradd() {
+	assertsudo
+	assertproj
+	assertprojexists
+	assertuser
+	assertuserexists
+	gpasswd --add "$USER" "$PROJGROUP" > /dev/null
+	echo "Added user to project. The user may need to log out and log back in for updated permissions to take effect."
+}
+
+# Remove user from project
+function projuserremove() {
+	assertsudo
+	assertproj
+	assertprojexists
+	assertuser
+	assertuserexists
+	gpasswd --delete "$USER" "$PROJGROUP" > /dev/null
+	echo "Removed user from project. These changes will not take effect until the user logs out and logs back in."
+	echo "If you have permissions (e.g. sudo) and need the changes to happen immediately, there are instructions online for \"linux log out another user\" and \"linux kill another user's processes\"."
+}
+
+# Fix permissions
+function projfixperms() {
+	assertsudo
+	assertproj
+	assertprojexists
+	projsetperms
+	echo "Permissions reset."
+}
+
+# Bashrc stuff
+# Use with "source $(project bashrc)"
+function projbashrc() {
+	echo "$0 bashrcsource"
+}
+# Behind the scenes script that the bashrc runs
+function projbashrcsource() {
+	function proj() {
+		cd "$PROJECTS_ROOT/$1"
+		umask 007
+		# Try common venv paths to activate
+		[ -e "$PROJECTS_ROOT/$1/venv/bin/activate" ] && source "$PROJECTS_ROOT/$1/venv/bin/activate"
+		[ -e "$PROJECTS_ROOT/$1/.venv/bin/activate" ] && source "$PROJECTS_ROOT/$1/.venv/bin/activate"
+	}
+	[ $BASHRC_MOTD -eq 1 ] && echo "Use \"proj <project>\" to open a project"
+}
+
+# Long help
+function projhelp() {
+	echo "Usage:"
+	echo "    project [action [project [user]]]"
+	echo ""
+	echo "Actions:"
+	echo "    bashrc - exports source-able script for bashrc (see note in Misc)"
+	echo "    create - create a new project"
+	echo "    delete - delete a project"
+	echo "    fixperms - resets the ownership & permissions of a project's files"
+	echo "    help - see this help text"
+	echo "    paths - see the project's location"
+	echo "    users - see the users in a project"
+	echo "    useradd - adds a user to a project"
+	echo "    userrm - removed a user from a project"
+	echo ""
+	echo "Examples:"
+	echo "    project create foo"
+	echo "    project useradd foo alice"
+	echo "    project userrm foo bob"
+	echo "    project fixperms foo"
+	echo "    project delete foo"
+	echo ""
+	echo "Misc:"
+	echo "    System umask should be set to 007 for projects to work best."
+	echo "    Add this to users' .bashrc for convience:"
+	echo "        source $(project bashrc)"
+	echo "    The .bashrc also enables the command \"proj <project>\" to easily change"
+	echo "    to a project's directory, set the umask, and open a venv if it's found"
+	echo ""
+}
+
+# Menu
+
+# Check first arg
+case $ACTION in
+	create)
+		projcreate
+		exit;;
+	delete)
+		projdelete
+		exit;;
+	paths)
+		projpaths
+		exit;;
+	users)
+		projuserlist
+		exit;;
+	useradd)
+		projuseradd
+		exit;;
+	userrm)
+		projuserremove
+		exit;;
+	fixperms)
+		projfixperms
+		exit;;
+	help)
+		projhelp
+		exit;;
+	bashrc)
+		projbashrc
+		exit;;
+	bashrcsource)
+		projbashrcsource
+		;;
+	*)
+		projusage
+		exit;;
+esac
