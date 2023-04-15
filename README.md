@@ -95,3 +95,21 @@ For example, this line will allow users in the `project-managers` group to manag
 ```
 
 > NOTE: Use `visudo` or similar when editing any `sudoers` files to prevent accidentally breaking sudo access
+
+## Configuration
+
+> NOTE: the DATA_ROOT must not be under the PROJECTS_ROOT
+> This contraint is to prevent collisions while allowing data
+> to be stored in a different location, for example, to assist
+> in version control of project files or to enable different
+> quotas or backup policies on project files vs data. These
+> additional configurations are not managed by this script.
+
+* `BASHRC_MOTD` (values `0` or `1`) - Show the "Use `proj <project>` to open a project" message when the user opens a terminal
+* `PROJECTS_ROOT` (string) - Directory for all project files (no trailing slash)
+* `DATA_ROOT` (string) - Directory for all data files (no trailing slash)
+* `GROUP_PREFIX` (string) - Prefix for group names; will be concatenated to project name with a hyphen (e.g., a value of "projects" with project "foo" will become a group called "projects-foo")
+
+> NOTE: changes to the `PROJECTS_ROOT`, `DATA_ROOT`, and `GROUP_PREFIX` after projects
+> have been created will NOT update existing projects; those
+> directories and groups will need to be updated manually
